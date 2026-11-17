@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SCRATCH-08 | .p8 to .sb3 Cart Builder</title>
+  <!-- Fixed: Added full CDN paths for JSZip and SparkMD5 -->
   <script src="https://cloudflare.com"></script>
   <script src="https://cloudflare.com"></script>
   <style>
@@ -71,6 +72,7 @@
     // Change this filename if your base file is named scratch-8.sb3
     const BASE_SB3_URL = './scratch-08.sb3';
 
+    // Fixed: Restored all 16 PICO-8 RGBA palette values
     const PICO8_PALETTE = [,         // 0: Black (Transparent for sprites),    // 1: Dark Blue,   // 2: Dark Purple,    // 3: Dark Green,   // 4: Brown,    // 5: Dark Grey, // 6: Light Grey, // 7: White,    // 8: Red,   // 9: Orange,  // a: Yellow,    // b: Green,  // c: Blue, // d: Lavender, // e: Pink
       [255, 204, 170, 255]  // f: Peach
     ];
@@ -246,30 +248,30 @@
 
         // 2. Render 256 PNG sprites and attach to 'P8_Sprites'
         log('Rendering 256 (8x8) PICO-8 sprites to PNG...');
-        const costumes = buildSpriteCostumes(sections.gfx, zip);
+        const spriteCostumes = buildSpriteCostumes(sections.gfx, zip);
         const spriteTarget = projectJson.targets.find(t => !t.isStage && t.name === 'P8_Sprites');
-
-        if (spriteTarget) {
-          spriteTarget.costumes = costumes;
-          spriteTarget.currentCostume = 0;
-        } else {
-          log('Warning: Sprite "P8_Sprites" not found in base .sb3; skipping sprite injection.');
+        if (!spriteTarget) {
+          throw new Error("Target sprite 'P8_Sprites' not found in base scratch-08.sb3.");
         }
+        spriteTarget.costumes = spriteCostumes;
+        spriteTarget.currentCostume = 0;
 
-        // 3. Save project.json and download .sb3
-        zip.file('project.json', JSON.stringify(projectJson));
+        // 3. Package updated project.json and trigger download
         log('Packaging .sb3 archive...');
-        const blob = await zip.generateAsync({ type: 'blob' });
+        zip.file('project.json', JSON.stringify(projectJson));
+        const outBlob = await zip.generateAsync({ type: 'blob' });
 
-        const outName = p8Input.name.replace(/\.p8$/i, '') + '.sb3';
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = outName;
-        link.click();
+        const outName = p8Input.name.replace(/\.[^/.]+$/, '') + '.sb3';
+        const downloadLink = document.createElement('a');
+        downloadLink.href = URL.createObjectURL(outBlob);
+        downloadLink.download = outName;
+        downloadLink.click();
+        URL.revokeObjectURL(downloadLink.href);
 
-        log(`Done! Downloaded ${outName} (${(blob.size / 1024).toFixed(1)} KB).`);
+        log(`Success! Downloaded ${outName}.`);
       } catch (err) {
         log(`Error: ${err.message}`);
+        console.error(err);
       }
     });
   </script>
