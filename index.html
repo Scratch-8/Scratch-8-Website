@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCRATCH-08 | .p8 to .sb3 Cart Builder</title>
+  <script src="https://cloudflare.com"></script>
+  <script src="https://cloudflare.com"></script>
+  <style>
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #1d2b53;
+      color: #fff1e8;
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    .card {
+      background: #000000;
+      border: 4px solid #ff004d;
+      padding: 24px;
+      border-radius: 4px;
+    }
+    h1 { color: #ffec27; margin-top: 0; }
+    .field { margin-bottom: 18px; }
+    label { display: block; margin-bottom: 6px; color: #29adff; font-weight: bold; }
+    input[type="file"], button {
+      font-family: inherit;
+      font-size: 15px;
+      padding: 10px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    input[type="file"] { background: #1d2b53; color: #fff1e8; border: 2px solid #5f574f; }
+    button {
+      background: #00e436;
+      color: #000000;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover { background: #ffec27; }
+    #log {
+      background: #111;
+      border: 2px solid #5f574f;
+      padding: 12px;
+      margin-top: 20px;
+      min-height: 100px;
+      white-space: pre-wrap;
+      font-size: 13px;
+      color: #c2c3c7;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SCRATCH-08 Cart Builder</h1>
+    <p>Drop in a PICO-8 (<code>.p8</code>) cartridge to build a ready-to-run <code>.sb3</code> file for TurboWarp &amp; Scratch Everywhere.</p>
+
+    <div class="field">
+      <label for="p8File">Select PICO-8 Cartridge (.p8)</label>
+      <input type="file" id="p8File" accept=".p8,.txt" />
+    </div>
+
+    <button id="buildBtn">Build .sb3 Cartridge</button>
+    <div id="log">Ready. Waiting for .p8 file...</div>
+  </div>
+
+  <script>
+    // Change this filename if your base file is named scratch-8.sb3
+    const BASE_SB3_URL = './scratch-08.sb3';
+
+    const PICO8_PALETTE = [,         // 0: Black (Transparent for sprites),    // 1: Dark Blue,   // 2: Dark Purple,    // 3: Dark Green,   // 4: Brown,    // 5: Dark Grey, // 6: Light Grey, // 7: White,    // 8: Red,   // 9: Orange,  // a: Yellow,    // b: Green,  // c: Blue, // d: Lavender, // e: Pink
+      [255, 204, 170, 255]  // f: Peach
+    ];
+
+    const logEl = document.getElementById('log');
+    function log(msg) { logEl.textContent += '\n' + msg; }
+
+    function parseP8(text) {
+      const sections = { lua: [], gfx: [], gff: [], map: [] };
+      let current = null;
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trimEnd();
+        if (line === '__lua__') { current = 'lua'; continue; }
+        if (line === '__gfx__') { current = 'gfx'; continue; }
+        if (line === '__gff__') { current = 'gff'; continue; }
+        if (line === '__map__') { current = 'map'; continue; }
+        if (line.startsWith('__') && line.endsWith('__')) { current = null; continue; }
+        if (current) sections[current].push(line);
+      }
+      return sections;
+    }
+
+    // Safely removes Lua comments (--) and // comments without touching strings
+    function cleanLua(lines) {
+      const cleaned = [];
+      let inBlockComment = false;
+
+      for (const line of lines) {
+        let out = '';
+        let inQuote = null;
+
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          const next = line[i + 1];
+
+          if (inBlockComment) {
+            if (ch === ']' && next === ']') {
+              inBlockComment = false;
+              i++;
+            }
+            continue;
+          }
+
+          if (inQuote) {
+            out += ch;
+            if (ch === '\\') {
+              out += next || '';
+              i++;
+            } else if (ch === inQuote) {
+              inQuote = null;
+            }
+            continue;
+          }
+
+          if (ch === '"' || ch === "'") {
+            inQuote = ch;
+            out += ch;
+            continue;
+          }
+
+          if (ch === '-' && next === '-') {
+            if (line[i + 2] === '[' && line[i + 3] === '[') {
+              inBlockComment = true;
+              i += 3;
+              continue;
+            }
+            break; // Rest of line is a comment
+          }
+
+          if (ch === '/' && next === '/') {
+            break; // PICO-8 also supports // single-line comments
+          }
+
+          out += ch;
+        }
+
+        const trimmed = out.trim();
+        if (trimmed.length > 0) cleaned.push(trimmed);
+      }
+      return cleaned;
+    }
+
+    function buildSpriteCostumes(gfxLines, zip) {
+      const costumes = [];
+      const canvas = document.createElement('canvas');
+      canvas.width = 8;
+      canvas.height = 8;
+      const ctx = canvas.getContext('2d');
+
+      const grid = Array.from({ length: 128 }, (_, y) =>
+        (gfxLines[y] || '').padEnd(128, '0')
+      );
+
+      for (let sprIndex = 0; sprIndex < 256; sprIndex++) {
+        const sx = (sprIndex % 16) * 8;
+        const sy = Math.floor(sprIndex / 16) * 8;
+        const imgData = ctx.createImageData(8, 8);
+
+        for (let py = 0; py < 8; py++) {
+          for (let px = 0; px < 8; px++) {
+            const hexChar = grid[sy + py][sx + px];
+            const colorIdx = parseInt(hexChar, 16) || 0;
+            const [r, g, b, a] = PICO8_PALETTE[colorIdx];
+            const offset = (py * 8 + px) * 4;
+            imgData.data[offset] = r;
+            imgData.data[offset + 1] = g;
+            imgData.data[offset + 2] = b;
+            imgData.data[offset + 3] = a;
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64 = dataUrl.split(',')[1];
+        const binaryStr = atob(base64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+        const md5 = SparkMD5.ArrayBuffer.hash(bytes.buffer);
+        const fileName = `${md5}.png`;
+        zip.file(fileName, bytes);
+
+        costumes.push({
+          assetId: md5,
+          name: `spr_${sprIndex}`,
+          bitmapResolution: 1,
+          md5ext: fileName,
+          dataFormat: 'png',
+          rotationCenterX: 0,
+          rotationCenterY: 0
+        });
+      }
+      return costumes;
+    }
+
+    // Updates an existing Scratch list by name or creates it if missing
+    function setScratchList(stage, listName, fallbackId, items) {
+      for (const [id, listData] of Object.entries(stage.lists)) {
+        if (listData[0] === listName) {
+          stage.lists[id] = [listName, items];
+          return;
+        }
+      }
+      stage.lists[fallbackId] = [listName, items];
+    }
+
+    document.getElementById('buildBtn').addEventListener('click', async () => {
+      const p8Input = document.getElementById('p8File').files[0];
+      if (!p8Input) {
+        logEl.textContent = 'Error: Please choose a .p8 file first.';
+        return;
+      }
+
+      try {
+        logEl.textContent = `Reading ${p8Input.name}...`;
+        const p8Text = await p8Input.text();
+        const sections = parseP8(p8Text);
+        const cleanedLua = cleanLua(sections.lua);
+        log(`Parsed ${cleanedLua.length} lines of cleaned PICO-8 Lua.`);
+
+        log(`Fetching base runtime (${BASE_SB3_URL})...`);
+        const res = await fetch(BASE_SB3_URL);
+        if (!res.ok) throw new Error(`Could not load ${BASE_SB3_URL} (HTTP ${res.status})`);
+
+        const zip = await JSZip.loadAsync(await res.arrayBuffer());
+        const projectJson = JSON.parse(await zip.file('project.json').async('string'));
+
+        // 1. Inject Lua, Map, and Flags into existing Stage lists
+        const stage = projectJson.targets.find(t => t.isStage);
+        setScratchList(stage, 'P8_LUA', 'p8_lua_id', cleanedLua);
+        setScratchList(stage, 'P8_MAP', 'p8_map_id', sections.map);
+        setScratchList(stage, 'P8_FLAGS', 'p8_flags_id', sections.gff);
+
+        // 2. Render 256 PNG sprites and attach to 'P8_Sprites'
+        log('Rendering 256 (8x8) PICO-8 sprites to PNG...');
+        const costumes = buildSpriteCostumes(sections.gfx, zip);
+        const spriteTarget = projectJson.targets.find(t => !t.isStage && t.name === 'P8_Sprites');
+
+        if (spriteTarget) {
+          spriteTarget.costumes = costumes;
+          spriteTarget.currentCostume = 0;
+        } else {
+          log('Warning: Sprite "P8_Sprites" not found in base .sb3; skipping sprite injection.');
+        }
+
+        // 3. Save project.json and download .sb3
+        zip.file('project.json', JSON.stringify(projectJson));
+        log('Packaging .sb3 archive...');
+        const blob = await zip.generateAsync({ type: 'blob' });
+
+        const outName = p8Input.name.replace(/\.p8$/i, '') + '.sb3';
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = outName;
+        link.click();
+
+        log(`Done! Downloaded ${outName} (${(blob.size / 1024).toFixed(1)} KB).`);
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    });
+  </script>
+</body>
+</html>
