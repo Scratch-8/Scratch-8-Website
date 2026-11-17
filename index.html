@@ -78,36 +78,34 @@
     const logEl = document.getElementById('log');
     function log(msg) { logEl.textContent += '\n' + msg; }
 
-    window.onerror = function (msg, url, lineNo) {
-      logEl.textContent = 'Page Error (line ' + lineNo + '): ' + msg;
-    };
-
     const BASE_SB3_URL = './scratch-08.sb3';
+    const BACKSLASH = String.fromCharCode(92);
 
     const PICO8_PALETTE = Array.of(
-      Array.of(0, 0, 0, 0),         // 0: Black (Transparent for sprites)
-      Array.of(29, 43, 83, 255),    // 1: Dark Blue
-      Array.of(126, 37, 83, 255),   // 2: Dark Purple
-      Array.of(0, 135, 81, 255),    // 3: Dark Green
-      Array.of(171, 82, 54, 255),   // 4: Brown
-      Array.of(95, 87, 79, 255),    // 5: Dark Grey
-      Array.of(194, 195, 199, 255), // 6: Light Grey
-      Array.of(255, 241, 232, 255), // 7: White
-      Array.of(255, 0, 77, 255),    // 8: Red
-      Array.of(255, 163, 0, 255),   // 9: Orange
-      Array.of(255, 236, 39, 255),  // a: Yellow
-      Array.of(0, 228, 54, 255),    // b: Green
-      Array.of(41, 173, 255, 255),  // c: Blue
-      Array.of(131, 118, 156, 255), // d: Lavender
-      Array.of(255, 119, 168, 255), // e: Pink
-      Array.of(255, 204, 170, 255)  // f: Peach
+      Array.of(0, 0, 0, 0),
+      Array.of(29, 43, 83, 255),
+      Array.of(126, 37, 83, 255),
+      Array.of(0, 135, 81, 255),
+      Array.of(171, 82, 54, 255),
+      Array.of(95, 87, 79, 255),
+      Array.of(194, 195, 199, 255),
+      Array.of(255, 241, 232, 255),
+      Array.of(255, 0, 77, 255),
+      Array.of(255, 163, 0, 255),
+      Array.of(255, 236, 39, 255),
+      Array.of(0, 228, 54, 255),
+      Array.of(41, 173, 255, 255),
+      Array.of(131, 118, 156, 255),
+      Array.of(255, 119, 168, 255),
+      Array.of(255, 204, 170, 255)
     );
 
     function parseP8(text) {
       const sections = { lua: Array.of(), gfx: Array.of(), gff: Array.of(), map: Array.of() };
       let current = null;
-      for (const rawLine of text.split(/\r?\n/)) {
-        const line = rawLine.trimEnd();
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trimEnd();
         if (line === '__lua__') { current = 'lua'; continue; }
         if (line === '__gfx__') { current = 'gfx'; continue; }
         if (line === '__gff__') { current = 'gff'; continue; }
@@ -122,7 +120,8 @@
       const cleaned = Array.of();
       let inBlockComment = false;
 
-      for (const line of lines) {
+      for (let l = 0; l < lines.length; l++) {
+        const line = lines[l];
         let out = '';
         let inQuote = null;
 
@@ -140,7 +139,7 @@
 
           if (inQuote) {
             out += ch;
-            if (ch === '\\') {
+            if (ch === BACKSLASH) {
               out += next || '';
               i++;
             } else if (ch === inQuote) {
@@ -184,7 +183,7 @@
       canvas.height = 8;
       const ctx = canvas.getContext('2d');
 
-      const grid = Array.from({ length: 128 }, (_, y) => {
+      const grid = Array.from({ length: 128 }, function (_, y) {
         const row = gfxLines.slice(y, y + 1).shift() || '';
         return row.padEnd(128, '0');
       });
@@ -215,12 +214,12 @@
         }
 
         const md5 = SparkMD5.ArrayBuffer.hash(bytes.buffer);
-        const fileName = `${md5}.png`;
+        const fileName = md5 + '.png';
         zip.file(fileName, bytes);
 
         costumes.push({
           assetId: md5,
-          name: `spr_${sprIndex}`,
+          name: 'spr_' + sprIndex,
           bitmapResolution: 1,
           md5ext: fileName,
           dataFormat: 'png',
@@ -232,7 +231,10 @@
     }
 
     function setScratchList(stage, listName, fallbackId, items) {
-      for (const [id, listData] of Object.entries(stage.lists)) {
+      const entries = Object.entries(stage.lists);
+      for (let i = 0; i < entries.length; i++) {
+        const id = entries[i].slice(0, 1).shift();
+        const listData = entries[i].slice(1, 2).shift();
         const existingName = Array.from(listData).shift();
         if (existingName === listName) {
           stage.lists[id] = Array.of(listName, items);
@@ -243,13 +245,14 @@
     }
 
     function getOrCreatePenSprite(projectJson, costumes) {
-      let penSprite = projectJson.targets.find(t => !t.isStage && t.name === 'Pen');
+      let penSprite = projectJson.targets.find(function (t) {
+        return !t.isStage && t.name === 'Pen';
+      });
 
       if (!penSprite) {
-        const maxLayer = projectJson.targets.reduce(
-          (max, t) => Math.max(max, t.layerOrder || 0),
-          0
-        );
+        const maxLayer = projectJson.targets.reduce(function (max, t) {
+          return Math.max(max, t.layerOrder || 0);
+        }, 0);
 
         penSprite = {
           isStage: false,
@@ -288,7 +291,7 @@
       logEl.textContent = 'Button clicked. Checking libraries...';
 
       if (typeof JSZip === 'undefined' || typeof SparkMD5 === 'undefined') {
-        log('Error: JSZip or SparkMD5 failed to load. Check internet connection or content blockers.');
+        log('Error: JSZip or SparkMD5 failed to load. Check internet connection or VPN/ad blocker.');
         return;
       }
 
@@ -299,15 +302,17 @@
       }
 
       try {
-        log(`Reading ${p8File.name}...`);
+        log('Reading ' + p8File.name + '...');
         const p8Text = await p8File.text();
         const sections = parseP8(p8Text);
         const cleanedLua = cleanLua(sections.lua);
-        log(`Parsed ${cleanedLua.length} lines of cleaned PICO-8 Lua.`);
+        log('Parsed ' + cleanedLua.length + ' lines of cleaned PICO-8 Lua.');
 
         let sb3Buffer;
         const manualSb3 = document.getElementById('baseSb3File').files.item(0);
         if (manualSb3) {
-          log(`Using selected base runtime (${manualSb3.name})...`);
+          log('Using selected base runtime (' + manualSb3.name + ')...');
           sb3Buffer = await manualSb3.arrayBuffer();
         } else {
+          log('Fetching base runtime (' + BASE_SB3_URL + ')...');
+          const res = await fetch(BASE_SB3_URL);
