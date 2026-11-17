@@ -70,11 +70,18 @@
       <div class="hint">Leave blank to auto-fetch <code>./scratch-08.sb3</code>, or pick your local <code>.sb3</code> file directly if opening offline.</div>
     </div>
 
-    <button id="buildBtn">Build .sb3 Cartridge</button>
-    <div id="log">Ready. Waiting for .p8 file...</div>
+    <button id="buildBtn" type="button">Build .sb3 Cartridge</button>
+    <div id="log">Initializing...</div>
   </div>
 
   <script>
+    const logEl = document.getElementById('log');
+    function log(msg) { logEl.textContent += '\n' + msg; }
+
+    window.onerror = function (msg, url, lineNo) {
+      logEl.textContent = 'Page Error (line ' + lineNo + '): ' + msg;
+    };
+
     const BASE_SB3_URL = './scratch-08.sb3';
 
     const PICO8_PALETTE = Array.of(
@@ -95,9 +102,6 @@
       Array.of(255, 119, 168, 255), // e: Pink
       Array.of(255, 204, 170, 255)  // f: Peach
     );
-
-    const logEl = document.getElementById('log');
-    function log(msg) { logEl.textContent += '\n' + msg; }
 
     function parseP8(text) {
       const sections = { lua: Array.of(), gfx: Array.of(), gff: Array.of(), map: Array.of() };
@@ -180,9 +184,10 @@
       canvas.height = 8;
       const ctx = canvas.getContext('2d');
 
-      const grid = Array.from({ length: 128 }, (_, y) =>
-        (gfxLines.at(y) || '').padEnd(128, '0')
-      );
+      const grid = Array.from({ length: 128 }, (_, y) => {
+        const row = gfxLines.slice(y, y + 1).shift() || '';
+        return row.padEnd(128, '0');
+      });
 
       for (let sprIndex = 0; sprIndex < 256; sprIndex++) {
         const sx = (sprIndex % 16) * 8;
@@ -190,10 +195,11 @@
         const imgData = ctx.createImageData(8, 8);
 
         for (let py = 0; py < 8; py++) {
+          const rowStr = grid.slice(sy + py, sy + py + 1).shift();
           for (let px = 0; px < 8; px++) {
-            const hexChar = grid.at(sy + py).charAt(sx + px);
+            const hexChar = rowStr.charAt(sx + px);
             const colorIdx = parseInt(hexChar, 16) || 0;
-            const rgba = PICO8_PALETTE.at(colorIdx);
+            const rgba = PICO8_PALETTE.slice(colorIdx, colorIdx + 1).shift();
             const offset = (py * 8 + px) * 4;
             imgData.data.set(rgba, offset);
           }
@@ -201,7 +207,7 @@
 
         ctx.putImageData(imgData, 0, 0);
         const dataUrl = canvas.toDataURL('image/png');
-        const base64 = dataUrl.split(',').at(1);
+        const base64 = dataUrl.split(',').pop();
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) {
@@ -227,7 +233,8 @@
 
     function setScratchList(stage, listName, fallbackId, items) {
       for (const [id, listData] of Object.entries(stage.lists)) {
-        if (listData.at(0) === listName) {
+        const existingName = Array.from(listData).shift();
+        if (existingName === listName) {
           stage.lists[id] = Array.of(listName, items);
           return;
         }
@@ -277,20 +284,22 @@
       return penSprite;
     }
 
-    document.getElementById('buildBtn').addEventListener('click', async () => {
+    async function handleBuild() {
+      logEl.textContent = 'Button clicked. Checking libraries...';
+
       if (typeof JSZip === 'undefined' || typeof SparkMD5 === 'undefined') {
-        logEl.textContent = 'Error: JSZip or SparkMD5 failed to load. Check your internet connection or ad blocker.';
+        log('Error: JSZip or SparkMD5 failed to load. Check internet connection or content blockers.');
         return;
       }
 
       const p8File = document.getElementById('p8File').files.item(0);
       if (!p8File) {
-        logEl.textContent = 'Error: Please choose a .p8 file first.';
+        log('Error: Please choose a .p8 file in step 1 first.');
         return;
       }
 
       try {
-        logEl.textContent = `Reading ${p8File.name}...`;
+        log(`Reading ${p8File.name}...`);
         const p8Text = await p8File.text();
         const sections = parseP8(p8Text);
         const cleanedLua = cleanLua(sections.lua);
@@ -302,11 +311,3 @@
           log(`Using selected base runtime (${manualSb3.name})...`);
           sb3Buffer = await manualSb3.arrayBuffer();
         } else {
-          log(`Fetching base runtime (${BASE_SB3_URL})...`);
-          const res = await fetch(BASE_SB3_URL);
-          if (!res.ok) {
-            throw new Error(`Could not auto-load ${BASE_SB3_URL} (HTTP ${res.status}). Select scratch-08.sb3 in input #2 above.`);
-          }
-          sb3Buffer = await res.arrayBuffer();
-        }
-
