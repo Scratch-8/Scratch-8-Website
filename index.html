@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SCRATCH-08 | .p8 to .sb3 Cart Builder</title>
-  <script src="https://jsdelivr.net"></script>
-  <script src="https://jsdelivr.net"></script>
+  <script src="https://unpkg.com"></script>
+  <script src="https://unpkg.com"></script>
   <style>
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -24,14 +24,15 @@
     h1 { color: #ffec27; margin-top: 0; }
     .field { margin-bottom: 18px; }
     label { display: block; margin-bottom: 6px; color: #29adff; font-weight: bold; }
-    input[type="file"], button {
+    .hint { font-size: 12px; color: #c2c3c7; margin-top: 4px; }
+    input, button {
       font-family: inherit;
       font-size: 15px;
       padding: 10px;
       width: 100%;
       box-sizing: border-box;
     }
-    input[type="file"] { background: #1d2b53; color: #fff1e8; border: 2px solid #5f574f; }
+    input { background: #1d2b53; color: #fff1e8; border: 2px solid #5f574f; }
     button {
       background: #00e436;
       color: #000000;
@@ -59,8 +60,14 @@
     <p>Drop in a PICO-8 (<code>.p8</code>) cartridge to build a ready-to-run <code>.sb3</code> file for TurboWarp &amp; Scratch Everywhere.</p>
 
     <div class="field">
-      <label for="p8File">Select PICO-8 Cartridge (.p8)</label>
+      <label for="p8File">1. Select PICO-8 Cartridge (.p8)</label>
       <input type="file" id="p8File" accept=".p8,.txt" />
+    </div>
+
+    <div class="field">
+      <label for="baseSb3File">2. Base Runtime (scratch-08.sb3) — Optional if hosted</label>
+      <input type="file" id="baseSb3File" accept=".sb3" />
+      <div class="hint">Leave blank to auto-fetch <code>./scratch-08.sb3</code>, or pick your local <code>.sb3</code> file directly if opening offline.</div>
     </div>
 
     <button id="buildBtn">Build .sb3 Cartridge</button>
@@ -70,15 +77,30 @@
   <script>
     const BASE_SB3_URL = './scratch-08.sb3';
 
-    const PICO8_PALETTE = [,         // 0: Black (Transparent for sprites),    // 1: Dark Blue,   // 2: Dark Purple,    // 3: Dark Green,   // 4: Brown,    // 5: Dark Grey, // 6: Light Grey, // 7: White,    // 8: Red,   // 9: Orange,  // a: Yellow,    // b: Green,  // c: Blue, // d: Lavender, // e: Pink
-      [255, 204, 170, 255]  // f: Peach
-    ];
+    const PICO8_PALETTE = Array.of(
+      Array.of(0, 0, 0, 0),         // 0: Black (Transparent for sprites)
+      Array.of(29, 43, 83, 255),    // 1: Dark Blue
+      Array.of(126, 37, 83, 255),   // 2: Dark Purple
+      Array.of(0, 135, 81, 255),    // 3: Dark Green
+      Array.of(171, 82, 54, 255),   // 4: Brown
+      Array.of(95, 87, 79, 255),    // 5: Dark Grey
+      Array.of(194, 195, 199, 255), // 6: Light Grey
+      Array.of(255, 241, 232, 255), // 7: White
+      Array.of(255, 0, 77, 255),    // 8: Red
+      Array.of(255, 163, 0, 255),   // 9: Orange
+      Array.of(255, 236, 39, 255),  // a: Yellow
+      Array.of(0, 228, 54, 255),    // b: Green
+      Array.of(41, 173, 255, 255),  // c: Blue
+      Array.of(131, 118, 156, 255), // d: Lavender
+      Array.of(255, 119, 168, 255), // e: Pink
+      Array.of(255, 204, 170, 255)  // f: Peach
+    );
 
     const logEl = document.getElementById('log');
     function log(msg) { logEl.textContent += '\n' + msg; }
 
     function parseP8(text) {
-      const sections = { lua: [], gfx: [], gff: [], map: [] };
+      const sections = { lua: Array.of(), gfx: Array.of(), gff: Array.of(), map: Array.of() };
       let current = null;
       for (const rawLine of text.split(/\r?\n/)) {
         const line = rawLine.trimEnd();
@@ -93,7 +115,7 @@
     }
 
     function cleanLua(lines) {
-      const cleaned = [];
+      const cleaned = Array.of();
       let inBlockComment = false;
 
       for (const line of lines) {
@@ -101,8 +123,8 @@
         let inQuote = null;
 
         for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          const next = line[i + 1];
+          const ch = line.charAt(i);
+          const next = line.charAt(i + 1);
 
           if (inBlockComment) {
             if (ch === ']' && next === ']') {
@@ -130,7 +152,7 @@
           }
 
           if (ch === '-' && next === '-') {
-            if (line[i + 2] === '[' && line[i + 3] === '[') {
+            if (line.charAt(i + 2) === '[' && line.charAt(i + 3) === '[') {
               inBlockComment = true;
               i += 3;
               continue;
@@ -152,14 +174,14 @@
     }
 
     function buildSpriteCostumes(gfxLines, zip) {
-      const costumes = [];
+      const costumes = Array.of();
       const canvas = document.createElement('canvas');
       canvas.width = 8;
       canvas.height = 8;
       const ctx = canvas.getContext('2d');
 
       const grid = Array.from({ length: 128 }, (_, y) =>
-        (gfxLines[y] || '').padEnd(128, '0')
+        (gfxLines.at(y) || '').padEnd(128, '0')
       );
 
       for (let sprIndex = 0; sprIndex < 256; sprIndex++) {
@@ -169,23 +191,22 @@
 
         for (let py = 0; py < 8; py++) {
           for (let px = 0; px < 8; px++) {
-            const hexChar = grid[sy + py][sx + px];
+            const hexChar = grid.at(sy + py).charAt(sx + px);
             const colorIdx = parseInt(hexChar, 16) || 0;
-            const [r, g, b, a] = PICO8_PALETTE[colorIdx];
+            const rgba = PICO8_PALETTE.at(colorIdx);
             const offset = (py * 8 + px) * 4;
-            imgData.data[offset] = r;
-            imgData.data[offset + 1] = g;
-            imgData.data[offset + 2] = b;
-            imgData.data[offset + 3] = a;
+            imgData.data.set(rgba, offset);
           }
         }
 
         ctx.putImageData(imgData, 0, 0);
         const dataUrl = canvas.toDataURL('image/png');
-        const base64 = dataUrl.split(',')[1];
+        const base64 = dataUrl.split(',').at(1);
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes.set(Array.of(binaryStr.charCodeAt(i)), i);
+        }
 
         const md5 = SparkMD5.ArrayBuffer.hash(bytes.buffer);
         const fileName = `${md5}.png`;
@@ -206,12 +227,12 @@
 
     function setScratchList(stage, listName, fallbackId, items) {
       for (const [id, listData] of Object.entries(stage.lists)) {
-        if (listData[0] === listName) {
-          stage.lists[id] = [listName, items];
+        if (listData.at(0) === listName) {
+          stage.lists[id] = Array.of(listName, items);
           return;
         }
       }
-      stage.lists[fallbackId] = [listName, items];
+      stage.lists[fallbackId] = Array.of(listName, items);
     }
 
     function getOrCreatePenSprite(projectJson, costumes) {
@@ -233,7 +254,7 @@
           comments: {},
           currentCostume: 0,
           costumes: costumes,
-          sounds: [],
+          sounds: Array.of(),
           volume: 100,
           layerOrder: maxLayer + 1,
           visible: true,
@@ -258,43 +279,34 @@
 
     document.getElementById('buildBtn').addEventListener('click', async () => {
       if (typeof JSZip === 'undefined' || typeof SparkMD5 === 'undefined') {
-        logEl.textContent = 'Error: JSZip or SparkMD5 failed to load from CDN.';
+        logEl.textContent = 'Error: JSZip or SparkMD5 failed to load. Check your internet connection or ad blocker.';
         return;
       }
 
-      const p8Input = document.getElementById('p8File').files[0];
-      if (!p8Input) {
+      const p8File = document.getElementById('p8File').files.item(0);
+      if (!p8File) {
         logEl.textContent = 'Error: Please choose a .p8 file first.';
         return;
       }
 
       try {
-        logEl.textContent = `Reading ${p8Input.name}...`;
-        const p8Text = await p8Input.text();
+        logEl.textContent = `Reading ${p8File.name}...`;
+        const p8Text = await p8File.text();
         const sections = parseP8(p8Text);
         const cleanedLua = cleanLua(sections.lua);
         log(`Parsed ${cleanedLua.length} lines of cleaned PICO-8 Lua.`);
 
-        log(`Fetching base runtime (${BASE_SB3_URL})...`);
-        const res = await fetch(BASE_SB3_URL);
-        if (!res.ok) throw new Error(`Could not load ${BASE_SB3_URL} (HTTP ${res.status})`);
+        let sb3Buffer;
+        const manualSb3 = document.getElementById('baseSb3File').files.item(0);
+        if (manualSb3) {
+          log(`Using selected base runtime (${manualSb3.name})...`);
+          sb3Buffer = await manualSb3.arrayBuffer();
+        } else {
+          log(`Fetching base runtime (${BASE_SB3_URL})...`);
+          const res = await fetch(BASE_SB3_URL);
+          if (!res.ok) {
+            throw new Error(`Could not auto-load ${BASE_SB3_URL} (HTTP ${res.status}). Select scratch-08.sb3 in input #2 above.`);
+          }
+          sb3Buffer = await res.arrayBuffer();
+        }
 
-        const zip = await JSZip.loadAsync(await res.arrayBuffer());
-        const projectJson = JSON.parse(await zip.file('project.json').async('string'));
-
-        const stage = projectJson.targets.find(t => t.isStage);
-        setScratchList(stage, 'P8_LUA', 'p8_lua_id', cleanedLua);
-        setScratchList(stage, 'P8_MAP', 'p8_map_id', sections.map);
-        setScratchList(stage, 'P8_FLAGS', 'p8_flags_id', sections.gff);
-
-        log('Rendering 256 (8x8) PICO-8 sprites to PNG...');
-        const spriteCostumes = buildSpriteCostumes(sections.gfx, zip);
-        getOrCreatePenSprite(projectJson, spriteCostumes);
-
-        log('Packaging .sb3 archive...');
-        zip.file('project.json', JSON.stringify(projectJson));
-        const outBlob = await zip.generateAsync({ type: 'blob' });
-
-        const outName = p8Input.name.replace(/\.[^/.]+$/, '') + '.sb3';
-        const downloadLink = document.createElement('a');
-        downloadLink.href = URL.createObjectURL(outBlob);
