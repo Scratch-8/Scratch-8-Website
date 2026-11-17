@@ -4,15 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SCRATCH-08 | .p8 to .sb3 Cart Builder</title>
-  <!-- Primary CDN: jsDelivr with automatic unpkg fallback -->
-  <script
-    src="https://jsdelivr.net"
-    onerror="this.onerror=null;this.src='https://unpkg.com';">
-  </script>
-  <script
-    src="https://jsdelivr.net"
-    onerror="this.onerror=null;this.src='https://unpkg.com';">
-  </script>
+  <script src="https://jsdelivr.net"></script>
+  <script src="https://jsdelivr.net"></script>
   <style>
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -75,11 +68,10 @@
   </div>
 
   <script>
-    // Change this filename if your base file is named scratch-8.sb3
     const BASE_SB3_URL = './scratch-08.sb3';
 
-    const PICO8_PALETTE = [,          // 0: Black (Transparent for sprites),     // 1: Dark Blue,    // 2: Dark Purple,     // 3: Dark Green,    // 4: Brown,     // 5: Dark Grey,  // 6: Light Grey,  // 7: White,     // 8: Red,    // 9: Orange,   // a: Yellow,     // b: Green,   // c: Blue,  // d: Lavender,  // e: Pink
-      [255, 204, 170, 255]   // f: Peach
+    const PICO8_PALETTE = [,         // 0: Black (Transparent for sprites),    // 1: Dark Blue,   // 2: Dark Purple,    // 3: Dark Green,   // 4: Brown,    // 5: Dark Grey, // 6: Light Grey, // 7: White,    // 8: Red,   // 9: Orange,  // a: Yellow,    // b: Green,  // c: Blue, // d: Lavender, // e: Pink
+      [255, 204, 170, 255]  // f: Peach
     ];
 
     const logEl = document.getElementById('log');
@@ -100,7 +92,6 @@
       return sections;
     }
 
-    // Safely removes Lua comments (--) and // comments without touching strings
     function cleanLua(lines) {
       const cleaned = [];
       let inBlockComment = false;
@@ -213,7 +204,6 @@
       return costumes;
     }
 
-    // Updates an existing Scratch list by name or creates it if missing
     function setScratchList(stage, listName, fallbackId, items) {
       for (const [id, listData] of Object.entries(stage.lists)) {
         if (listData[0] === listName) {
@@ -224,7 +214,6 @@
       stage.lists[fallbackId] = [listName, items];
     }
 
-    // Finds existing "Pen" sprite or creates a valid Scratch 3.0 sprite target
     function getOrCreatePenSprite(projectJson, costumes) {
       let penSprite = projectJson.targets.find(t => !t.isStage && t.name === 'Pen');
 
@@ -269,7 +258,7 @@
 
     document.getElementById('buildBtn').addEventListener('click', async () => {
       if (typeof JSZip === 'undefined' || typeof SparkMD5 === 'undefined') {
-        logEl.textContent = 'Error: JSZip or SparkMD5 failed to load. Check your internet connection or disable content blockers for cdn.jsdelivr.net / unpkg.com.';
+        logEl.textContent = 'Error: JSZip or SparkMD5 failed to load from CDN.';
         return;
       }
 
@@ -293,5 +282,19 @@
         const zip = await JSZip.loadAsync(await res.arrayBuffer());
         const projectJson = JSON.parse(await zip.file('project.json').async('string'));
 
-        // 1. Inject Lua, Map, and Flags into existing Stage lists
         const stage = projectJson.targets.find(t => t.isStage);
+        setScratchList(stage, 'P8_LUA', 'p8_lua_id', cleanedLua);
+        setScratchList(stage, 'P8_MAP', 'p8_map_id', sections.map);
+        setScratchList(stage, 'P8_FLAGS', 'p8_flags_id', sections.gff);
+
+        log('Rendering 256 (8x8) PICO-8 sprites to PNG...');
+        const spriteCostumes = buildSpriteCostumes(sections.gfx, zip);
+        getOrCreatePenSprite(projectJson, spriteCostumes);
+
+        log('Packaging .sb3 archive...');
+        zip.file('project.json', JSON.stringify(projectJson));
+        const outBlob = await zip.generateAsync({ type: 'blob' });
+
+        const outName = p8Input.name.replace(/\.[^/.]+$/, '') + '.sb3';
+        const downloadLink = document.createElement('a');
+        downloadLink.href = URL.createObjectURL(outBlob);
