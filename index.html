@@ -4,8 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SCRATCH-08 | .p8 to .sb3 Cart Builder</title>
-  <script src="https://cloudflare.com"></script>
-  <script src="https://cloudflare.com"></script>
+  <!-- Primary CDN: jsDelivr with automatic unpkg fallback -->
+  <script
+    src="https://jsdelivr.net"
+    onerror="this.onerror=null;this.src='https://unpkg.com';">
+  </script>
+  <script
+    src="https://jsdelivr.net"
+    onerror="this.onerror=null;this.src='https://unpkg.com';">
+  </script>
   <style>
     body {
       font-family: 'Courier New', Courier, monospace;
@@ -71,8 +78,8 @@
     // Change this filename if your base file is named scratch-8.sb3
     const BASE_SB3_URL = './scratch-08.sb3';
 
-    const PICO8_PALETTE = [,         // 0: Black (Transparent for sprites),    // 1: Dark Blue,   // 2: Dark Purple,    // 3: Dark Green,   // 4: Brown,    // 5: Dark Grey, // 6: Light Grey, // 7: White,    // 8: Red,   // 9: Orange,  // a: Yellow,    // b: Green,  // c: Blue, // d: Lavender, // e: Pink
-       // f: Peach
+    const PICO8_PALETTE = [,          // 0: Black (Transparent for sprites),     // 1: Dark Blue,    // 2: Dark Purple,     // 3: Dark Green,    // 4: Brown,     // 5: Dark Grey,  // 6: Light Grey,  // 7: White,     // 8: Red,    // 9: Orange,   // a: Yellow,     // b: Green,   // c: Blue,  // d: Lavender,  // e: Pink
+      [255, 204, 170, 255]   // f: Peach
     ];
 
     const logEl = document.getElementById('log');
@@ -184,7 +191,7 @@
 
         ctx.putImageData(imgData, 0, 0);
         const dataUrl = canvas.toDataURL('image/png');
-        const base64 = dataUrl.split(',');
+        const base64 = dataUrl.split(',')[1];
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
@@ -209,7 +216,7 @@
     // Updates an existing Scratch list by name or creates it if missing
     function setScratchList(stage, listName, fallbackId, items) {
       for (const [id, listData] of Object.entries(stage.lists)) {
-        if (listData === listName) {
+        if (listData[0] === listName) {
           stage.lists[id] = [listName, items];
           return;
         }
@@ -261,7 +268,12 @@
     }
 
     document.getElementById('buildBtn').addEventListener('click', async () => {
-      const p8Input = document.getElementById('p8File').files;
+      if (typeof JSZip === 'undefined' || typeof SparkMD5 === 'undefined') {
+        logEl.textContent = 'Error: JSZip or SparkMD5 failed to load. Check your internet connection or disable content blockers for cdn.jsdelivr.net / unpkg.com.';
+        return;
+      }
+
+      const p8Input = document.getElementById('p8File').files[0];
       if (!p8Input) {
         logEl.textContent = 'Error: Please choose a .p8 file first.';
         return;
@@ -283,22 +295,3 @@
 
         // 1. Inject Lua, Map, and Flags into existing Stage lists
         const stage = projectJson.targets.find(t => t.isStage);
-        setScratchList(stage, 'P8_LUA', 'p8_lua_id', cleanedLua);
-        setScratchList(stage, 'P8_MAP', 'p8_map_id', sections.map);
-        setScratchList(stage, 'P8_FLAGS', 'p8_flags_id', sections.gff);
-
-        // 2. Render 256 PNG sprites and attach to 'Pen'
-        log('Rendering 256 (8x8) PICO-8 sprites to PNG...');
-        const spriteCostumes = buildSpriteCostumes(sections.gfx, zip);
-        getOrCreatePenSprite(projectJson, spriteCostumes);
-
-        // 3. Package updated project.json and trigger download
-        log('Packaging .sb3 archive...');
-        zip.file('project.json', JSON.stringify(projectJson));
-        const outBlob = await zip.generateAsync({ type: 'blob' });
-
-        const outName = p8Input.name.replace(/\.[^/.]+$/, '') + '.sb3';
-        const downloadLink = document.createElement('a');
-        downloadLink.href = URL.createObjectURL(outBlob);
-        downloadLink.download = outName;
-        downloadLink.click();
