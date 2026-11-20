@@ -29,7 +29,7 @@
     h1 { margin: 0 0 8px; font-size: 1.5rem; }
     p { margin: 0 0 20px; color: var(--muted); font-size: 0.95rem; line-height: 1.4; }
     .dropzone {
-      border: 2px dashed #5f574f; border-radius: 12px; padding: 32px 16px;
+      border: 2px dashed #5f574f; border-radius: 12px; padding: 28px 16px;
       text-align: center; cursor: pointer; transition: 0.2s; background: rgba(0,0,0,0.15);
     }
     .dropzone:hover, .dropzone.dragover { border-color: var(--accent-hover); background: rgba(255,0,77,0.1); }
@@ -38,7 +38,7 @@
       display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0;
     }
     label { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--muted); }
-    select, input[type="number"] {
+    select {
       background: #1d2b53; color: var(--text); border: 1px solid #5f574f;
       border-radius: 8px; padding: 10px; font-size: 0.95rem;
     }
@@ -55,19 +55,19 @@
       white-space: pre-wrap; display: none;
     }
     .preview-grid {
-      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px;
-      background: #000; padding: 8px; border-radius: 8px; max-height: 160px; overflow-y: auto;
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px;
+      background: #000; padding: 10px; border-radius: 8px; max-height: 160px; overflow-y: auto;
     }
-    .preview-grid img { image-rendering: pixelated; width: 24px; height: 24px; border: 1px solid #222; }
+    .preview-grid img { image-rendering: pixelated; width: 32px; height: 32px; border: 1px solid #333; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>.p8 &rarr; .sb3 Remaster Converter</h1>
-    <p>Converts PICO-8 cartridges into Scratch / TurboWarp projects with HD-ready sprite costumes, map grids, input polling, and embedded Lua source.</p>
+    <p>Auto-loads <code>./testrom.p8</code> on startup, or tap below to choose your own cartridge.</p>
 
     <div class="dropzone" id="dropzone">
-      <strong id="fileLabel">Tap to select or drop a .p8 file</strong>
+      <strong id="fileLabel">Loading ./testrom.p8...</strong>
       <input type="file" id="fileInput" accept=".p8,.txt" />
     </div>
 
@@ -95,14 +95,14 @@
   </div>
 
   <script>
-    const PICO8_PALETTE = [, [29, 43, 83], [126, 37, 83], [0, 135, 81],
-, [95, 87, 79], [194, 195, 199], [255, 241, 232],
-, [255, 163, 0], [255, 236, 39], [0, 228, 54],
-, [131, 118, 156], [255, 119, 168], [255, 204, 170]
+    const PICO8_PALETTE = [,  ,  ,  ,
+ ,  ,  , [255, 241, 232],
+,  ,  ,  [0, 228, 54],
+,  [131, 118, 156], [255, 119, 168], [255, 204, 170]
     ];
 
     let loadedText = "";
-    let fileName = "game";
+    let fileName = "testrom";
 
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("fileInput");
@@ -115,6 +115,28 @@
       logEl.textContent += msg + "\n";
       logEl.scrollTop = logEl.scrollHeight;
     }
+
+    function loadCartText(text, name) {
+      loadedText = text;
+      fileName = name.replace(/\.[^/.]+$/, "");
+      document.getElementById("fileLabel").textContent = "Loaded: " + name + " (Tap to swap)";
+      convertBtn.disabled = false;
+      logEl.textContent = "";
+      log("Ready: " + name + " (" + loadedText.length + " bytes)");
+    }
+
+    // Auto-fetch ./testrom.p8 on page load
+    window.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const res = await fetch("./testrom.p8");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const text = await res.text();
+        loadCartText(text, "testrom.p8");
+      } catch (err) {
+        document.getElementById("fileLabel").textContent = "Tap to select or drop a .p8 file";
+        log("Could not auto-load ./testrom.p8 (" + err.message + "). Select a .p8 manually.");
+      }
+    });
 
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
@@ -129,15 +151,8 @@
     });
 
     function handleFile(file) {
-      fileName = file.name.replace(/\.[^/.]+$/, "");
-      document.getElementById("fileLabel").textContent = "Loaded: " + file.name;
       const reader = new FileReader();
-      reader.onload = (e) => {
-        loadedText = e.target.result;
-        convertBtn.disabled = false;
-        logEl.textContent = "";
-        log("Parsed " + file.name + " (" + loadedText.length + " bytes)");
-      };
+      reader.onload = (e) => loadCartText(e.target.result, file.name);
       reader.readAsText(file);
     }
 
@@ -171,7 +186,6 @@
       canvas.height = 8 * scale;
       const ctx = canvas.getContext("2d");
 
-      // Extract up to 128 sprites (top 64 rows; bottom 64 rows share memory with __map__ in PICO-8)
       for (let idx = 0; idx < 128; idx++) {
         const sx = (idx % 16) * 8;
         const sy = Math.floor(idx / 16) * 8;
@@ -237,13 +251,3 @@
       const transIdx = parseInt(document.getElementById("transColor").value, 10);
 
       log("1/4 Extracting __lua__, __gfx__, and __map__...");
-      const sections = parseP8(loadedText);
-
-      log("2/4 Rendering PICO-8 sprites at " + scale + "x scale...");
-      const sprites = extractSprites(sections.gfx, scale, transIdx);
-      sprites.forEach(s => {
-        const img = document.createElement("img");
-        img.src = s.dataUrl;
-        img.title = "Sprite #" + s.idx;
-        previewGrid.appendChild(img);
-      });
