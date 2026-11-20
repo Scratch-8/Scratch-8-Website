@@ -2,121 +2,248 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PICO-8 to Scratch (.sb3) Packager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>.p8 to .sb3 Remaster Converter</title>
   <script src="https://cloudflare.com"></script>
-  <script src="https://jsdelivr.net"></script>
+  <script src="https://cloudflare.com"></script>
   <style>
+    :root {
+      --bg: #1d2b53;
+      --card: #29366f;
+      --accent: #ff004d;
+      --accent-hover: #ff77a8;
+      --text: #fff1e8;
+      --muted: #c2c3c7;
+    }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #1d2b53;
-      color: #fff1e8;
-      max-width: 820px;
-      margin: 2rem auto;
-      padding: 0 1rem;
+      margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; align-items: center; min-height: 100vh;
     }
-    h1 { color: #ff004d; margin-bottom: 0.25rem; }
-    p { color: #c2c3c7; }
-    .card {
-      background: #29366f;
-      border: 2px solid #5f574f;
-      border-radius: 8px;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
+    .container {
+      width: 100%; max-width: 600px; background: var(--card);
+      border-radius: 16px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);
     }
-    textarea {
-      width: 100%;
-      height: 220px;
-      background: #000000;
-      color: #00e436;
-      font-family: monospace;
-      font-size: 13px;
-      border: 1px solid #5f574f;
-      border-radius: 4px;
-      padding: 0.5rem;
-      box-sizing: border-box;
+    h1 { margin: 0 0 8px; font-size: 1.5rem; }
+    p { margin: 0 0 20px; color: var(--muted); font-size: 0.95rem; line-height: 1.4; }
+    .dropzone {
+      border: 2px dashed #5f574f; border-radius: 12px; padding: 32px 16px;
+      text-align: center; cursor: pointer; transition: 0.2s; background: rgba(0,0,0,0.15);
+    }
+    .dropzone:hover, .dropzone.dragover { border-color: var(--accent-hover); background: rgba(255,0,77,0.1); }
+    input[type="file"] { display: none; }
+    .options {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0;
+    }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--muted); }
+    select, input[type="number"] {
+      background: #1d2b53; color: var(--text); border: 1px solid #5f574f;
+      border-radius: 8px; padding: 10px; font-size: 0.95rem;
     }
     button {
-      background: #00e436;
-      color: #000000;
-      border: none;
-      padding: 0.65rem 1.25rem;
-      font-weight: bold;
-      font-size: 15px;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-top: 0.75rem;
+      width: 100%; background: var(--accent); color: white; border: none;
+      border-radius: 10px; padding: 14px; font-size: 1rem; font-weight: bold;
+      cursor: pointer; transition: 0.15s;
     }
-    button:hover { background: #29adff; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button:not(:disabled):hover { background: #e00043; }
     #log {
-      background: #000;
-      color: #ffec27;
-      font-family: monospace;
-      font-size: 12px;
-      padding: 0.75rem;
-      border-radius: 4px;
-      white-space: pre-wrap;
-      min-height: 60px;
+      margin-top: 16px; background: #000; color: #00e436; padding: 12px;
+      border-radius: 8px; font-size: 0.8rem; max-height: 180px; overflow-y: auto;
+      white-space: pre-wrap; display: none;
     }
+    .preview-grid {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px;
+      background: #000; padding: 8px; border-radius: 8px; max-height: 160px; overflow-y: auto;
+    }
+    .preview-grid img { image-rendering: pixelated; width: 24px; height: 24px; border: 1px solid #222; }
   </style>
 </head>
 <body>
-  <h1>PICO-8 &rarr; Scratch (.sb3) Packager</h1>
-  <p>Converts <code>__lua__</code>, <code>__gfx__</code>, <code>__gff__</code>, and <code>__map__</code> into native Scratch 3.0 blocks and SVG costumes.</p>
+  <div class="container">
+    <h1>.p8 &rarr; .sb3 Remaster Converter</h1>
+    <p>Converts PICO-8 cartridges into Scratch / TurboWarp projects with HD-ready sprite costumes, map grids, input polling, and embedded Lua source.</p>
 
-  <div class="card">
-    <label for="p8File"><strong>1. Load a .p8 Cartridge:</strong></label><br /><br />
-    <input type="file" id="p8File" accept=".p8,.txt" />
+    <div class="dropzone" id="dropzone">
+      <strong id="fileLabel">Tap to select or drop a .p8 file</strong>
+      <input type="file" id="fileInput" accept=".p8,.txt" />
+    </div>
+
+    <div class="options">
+      <label>
+        Sprite Export Scale
+        <select id="scaleSelect">
+          <option value="1">1x (8&times;8 Original)</option>
+          <option value="4" selected>4x (32&times;32 Crisp)</option>
+          <option value="8">8x (64&times;64 HD Base)</option>
+        </select>
+      </label>
+      <label>
+        Transparent Color
+        <select id="transColor">
+          <option value="0" selected>0 - Black (#000000)</option>
+          <option value="-1">None (Opaque)</option>
+        </select>
+      </label>
+    </div>
+
+    <button id="convertBtn" disabled>Convert &amp; Download .sb3</button>
+    <div class="preview-grid" id="previewGrid" style="display:none;"></div>
+    <div id="log"></div>
   </div>
 
-  <div class="card">
-    <label for="p8Text"><strong>2. Or Edit / Paste Cartridge Data Directly:</strong></label><br /><br />
-    <textarea id="p8Text">pico-8 cartridge // http://pico-8.com
-version 41
-__lua__
-x = 60
-y = 60
-spd = 2
+  <script>
+    const PICO8_PALETTE = [, [29, 43, 83], [126, 37, 83], [0, 135, 81],
+, [95, 87, 79], [194, 195, 199], [255, 241, 232],
+, [255, 163, 0], [255, 236, 39], [0, 228, 54],
+, [131, 118, 156], [255, 119, 168], [255, 204, 170]
+    ];
 
-function _init()
-  x = 60
-  y = 60
-end
+    let loadedText = "";
+    let fileName = "game";
 
-function _update()
-  if btn(0) then x -= spd end
-  if btn(1) then x += spd end
-  if btn(2) then y -= spd end
-  if btn(3) then y += spd end
-end
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    const convertBtn = document.getElementById("convertBtn");
+    const logEl = document.getElementById("log");
+    const previewGrid = document.getElementById("previewGrid");
 
-function _draw()
-  cls(1)
-  rectfill(10, 100, 118, 110, 3)
-  spr(1, x, y)
-end
-__gfx__
-00000000777777000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000788887000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000780807000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000788887000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000000ccccc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-000000007ccccc70000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000080080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000070070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-__gff__
-01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-__map__
-00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-</textarea>
-    <button id="buildBtn">Package &amp; Download .sb3</button>
-  </div>
+    function log(msg) {
+      logEl.style.display = "block";
+      logEl.textContent += msg + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    }
 
-  <div class="card">
-    <strong>Build Log:</strong>
-    <div id="log">Ready. Load a .p8 file or click Package to test the built-in demo.</div>
-  </div>
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
 
-  <script src="packager.js"></script>
-</body>
-</html>
+    function handleFile(file) {
+      fileName = file.name.replace(/\.[^/.]+$/, "");
+      document.getElementById("fileLabel").textContent = "Loaded: " + file.name;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        loadedText = e.target.result;
+        convertBtn.disabled = false;
+        logEl.textContent = "";
+        log("Parsed " + file.name + " (" + loadedText.length + " bytes)");
+      };
+      reader.readAsText(file);
+    }
+
+    function parseP8(text) {
+      const sections = { lua: "", gfx: "", gff: "", map: "", sfx: "", music: "" };
+      let current = null;
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trimEnd();
+        const match = line.match(/^__(lua|gfx|gff|map|sfx|music)__$/);
+        if (match) {
+          current = match[1];
+        } else if (current) {
+          sections[current] += rawLine + "\n";
+        }
+      }
+      return sections;
+    }
+
+    function extractSprites(gfxText, scale, transIdx) {
+      const lines = gfxText.trim().split(/\r?\n/).filter(Boolean);
+      const grid = Array.from({ length: 128 }, () => new Uint8Array(128));
+      for (let y = 0; y < Math.min(128, lines.length); y++) {
+        for (let x = 0; x < Math.min(128, lines[y].length); x++) {
+          grid[y][x] = parseInt(lines[y][x], 16) || 0;
+        }
+      }
+
+      const sprites = [];
+      const canvas = document.createElement("canvas");
+      canvas.width = 8 * scale;
+      canvas.height = 8 * scale;
+      const ctx = canvas.getContext("2d");
+
+      // Extract up to 128 sprites (top 64 rows; bottom 64 rows share memory with __map__ in PICO-8)
+      for (let idx = 0; idx < 128; idx++) {
+        const sx = (idx % 16) * 8;
+        const sy = Math.floor(idx / 16) * 8;
+        let hasPixels = false;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let py = 0; py < 8; py++) {
+          for (let px = 0; px < 8; px++) {
+            const c = grid[sy + py][sx + px];
+            if (c !== transIdx) {
+              hasPixels = true;
+              const [r, g, b] = PICO8_PALETTE[c];
+              ctx.fillStyle = `rgb(${r},${g},${b})`;
+              ctx.fillRect(px * scale, py * scale, scale, scale);
+            }
+          }
+        }
+
+        if (hasPixels || idx === 0) {
+          const dataUrl = canvas.toDataURL("image/png");
+          const base64 = dataUrl.split(",")[1];
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const md5 = SparkMD5.ArrayBuffer.hash(bytes.buffer);
+          sprites.push({ idx, md5, bytes, dataUrl });
+        }
+      }
+      return sprites;
+    }
+
+    function parseMapRows(mapText) {
+      const lines = mapText.trim().split(/\r?\n/).filter(Boolean);
+      const rows = [];
+      for (let y = 0; y < Math.min(32, lines.length); y++) {
+        const rowTiles = [];
+        for (let x = 0; x < Math.min(128, Math.floor(lines[y].length / 2)); x++) {
+          const hexByte = lines[y].substr(x * 2, 2);
+          rowTiles.push(parseInt(hexByte, 16) || 0);
+        }
+        rows.push(rowTiles.join(","));
+      }
+      return rows;
+    }
+
+    function createBlankPng() {
+      const c = document.createElement("canvas");
+      c.width = 1; c.height = 1;
+      const base64 = c.toDataURL("image/png").split(",")[1];
+      const bin = atob(base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return { md5: SparkMD5.ArrayBuffer.hash(bytes.buffer), bytes };
+    }
+
+    convertBtn.addEventListener("click", async () => {
+      convertBtn.disabled = true;
+      logEl.textContent = "";
+      previewGrid.innerHTML = "";
+      previewGrid.style.display = "flex";
+
+      const scale = parseInt(document.getElementById("scaleSelect").value, 10);
+      const transIdx = parseInt(document.getElementById("transColor").value, 10);
+
+      log("1/4 Extracting __lua__, __gfx__, and __map__...");
+      const sections = parseP8(loadedText);
+
+      log("2/4 Rendering PICO-8 sprites at " + scale + "x scale...");
+      const sprites = extractSprites(sections.gfx, scale, transIdx);
+      sprites.forEach(s => {
+        const img = document.createElement("img");
+        img.src = s.dataUrl;
+        img.title = "Sprite #" + s.idx;
+        previewGrid.appendChild(img);
+      });
