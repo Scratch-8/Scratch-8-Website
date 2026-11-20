@@ -52,7 +52,7 @@
     #log {
       margin-top: 16px; background: #000; color: #00e436; padding: 12px;
       border-radius: 8px; font-size: 0.8rem; max-height: 180px; overflow-y: auto;
-      white-space: pre-wrap; display: none;
+      white-space: pre-wrap;
     }
     .preview-grid {
       display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px;
@@ -91,14 +91,26 @@
 
     <button id="convertBtn" disabled>Convert &amp; Download .sb3</button>
     <div class="preview-grid" id="previewGrid" style="display:none;"></div>
-    <div id="log"></div>
+    <div id="log">Initializing...</div>
   </div>
 
   <script>
-    const PICO8_PALETTE = [,  ,  ,  ,
- ,  ,  , [255, 241, 232],
-,  ,  ,  [0, 228, 54],
-,  [131, 118, 156], [255, 119, 168], [255, 204, 170]
+    const PICO8_PALETTE = [,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+ ,
+      [255, 204, 170]
     ];
 
     let loadedText = "";
@@ -111,8 +123,7 @@
     const previewGrid = document.getElementById("previewGrid");
 
     function log(msg) {
-      logEl.style.display = "block";
-      logEl.textContent += msg + "\n";
+      logEl.textContent += "\n" + msg;
       logEl.scrollTop = logEl.scrollHeight;
     }
 
@@ -121,22 +132,24 @@
       fileName = name.replace(/\.[^/.]+$/, "");
       document.getElementById("fileLabel").textContent = "Loaded: " + name + " (Tap to swap)";
       convertBtn.disabled = false;
-      logEl.textContent = "";
       log("Ready: " + name + " (" + loadedText.length + " bytes)");
     }
 
-    // Auto-fetch ./testrom.p8 on page load
-    window.addEventListener("DOMContentLoaded", async () => {
+    async function init() {
       try {
-        const res = await fetch("./testrom.p8");
+        log("Fetching ./testrom.p8...");
+        const res = await fetch("./testrom.p8?v=" + Date.now());
         if (!res.ok) throw new Error("HTTP " + res.status);
         const text = await res.text();
+        if (!text.includes("__lua__") && !text.includes("__gfx__")) {
+          throw new Error("File found, but missing PICO-8 headers (check if Vercel returned HTML)");
+        }
         loadCartText(text, "testrom.p8");
       } catch (err) {
         document.getElementById("fileLabel").textContent = "Tap to select or drop a .p8 file";
-        log("Could not auto-load ./testrom.p8 (" + err.message + "). Select a .p8 manually.");
+        log("Auto-load skipped: " + err.message);
       }
-    });
+    }
 
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
@@ -197,8 +210,8 @@
             const c = grid[sy + py][sx + px];
             if (c !== transIdx) {
               hasPixels = true;
-              const [r, g, b] = PICO8_PALETTE[c];
-              ctx.fillStyle = `rgb(${r},${g},${b})`;
+              const rgb = PICO8_PALETTE[c] ||;
+              ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
               ctx.fillRect(px * scale, py * scale, scale, scale);
             }
           }
@@ -242,12 +255,9 @@
     }
 
     convertBtn.addEventListener("click", async () => {
-      convertBtn.disabled = true;
-      logEl.textContent = "";
-      previewGrid.innerHTML = "";
-      previewGrid.style.display = "flex";
+      try {
+        convertBtn.disabled = true;
+        previewGrid.innerHTML = "";
+        previewGrid.style.display = "flex";
 
-      const scale = parseInt(document.getElementById("scaleSelect").value, 10);
-      const transIdx = parseInt(document.getElementById("transColor").value, 10);
-
-      log("1/4 Extracting __lua__, __gfx__, and __map__...");
+        const scale = parseInt(document.getElementById("scaleSelect").value, 10);
