@@ -95,23 +95,7 @@
   </div>
 
   <script>
-    const PICO8_PALETTE = [,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
- ,
-      [255, 204, 170]
-    ];
+    const PALETTE_HEX = "#000000,#1d2b53,#7e2553,#008751,#ab5236,#5f574f,#c2c3c7,#fff1e8,#ff004d,#ffa300,#ffec27,#00e436,#29adff,#83769c,#ff77a8,#ffccaa".split(",");
 
     let loadedText = "";
     let fileName = "testrom";
@@ -142,7 +126,7 @@
         if (!res.ok) throw new Error("HTTP " + res.status);
         const text = await res.text();
         if (!text.includes("__lua__") && !text.includes("__gfx__")) {
-          throw new Error("File found, but missing PICO-8 headers (check if Vercel returned HTML)");
+          throw new Error("File returned is not a valid .p8 cartridge");
         }
         loadCartText(text, "testrom.p8");
       } catch (err) {
@@ -157,10 +141,12 @@
     dropzone.addEventListener("drop", (e) => {
       e.preventDefault();
       dropzone.classList.remove("dragover");
-      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+      const file = e.dataTransfer.files.item(0);
+      if (file) handleFile(file);
     });
     fileInput.addEventListener("change", (e) => {
-      if (e.target.files[0]) handleFile(e.target.files[0]);
+      const file = e.target.files.item(0);
+      if (file) handleFile(file);
     });
 
     function handleFile(file) {
@@ -176,7 +162,7 @@
         const line = rawLine.trimEnd();
         const match = line.match(/^__(lua|gfx|gff|map|sfx|music)__$/);
         if (match) {
-          current = match[1];
+          current = match.at(1);
         } else if (current) {
           sections[current] += rawLine + "\n";
         }
@@ -188,8 +174,9 @@
       const lines = gfxText.trim().split(/\r?\n/).filter(Boolean);
       const grid = Array.from({ length: 128 }, () => new Uint8Array(128));
       for (let y = 0; y < Math.min(128, lines.length); y++) {
-        for (let x = 0; x < Math.min(128, lines[y].length); x++) {
-          grid[y][x] = parseInt(lines[y][x], 16) || 0;
+        const rowStr = lines.at(y);
+        for (let x = 0; x < Math.min(128, rowStr.length); x++) {
+          grid.at(y)[x] = parseInt(rowStr.charAt(x), 16) || 0;
         }
       }
 
@@ -206,12 +193,12 @@
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         for (let py = 0; py < 8; py++) {
+          const rowArr = grid.at(sy + py);
           for (let px = 0; px < 8; px++) {
-            const c = grid[sy + py][sx + px];
+            const c = rowArr.at(sx + px);
             if (c !== transIdx) {
               hasPixels = true;
-              const rgb = PICO8_PALETTE[c] ||;
-              ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+              ctx.fillStyle = PALETTE_HEX.at(c) || "#000000";
               ctx.fillRect(px * scale, py * scale, scale, scale);
             }
           }
@@ -219,7 +206,7 @@
 
         if (hasPixels || idx === 0) {
           const dataUrl = canvas.toDataURL("image/png");
-          const base64 = dataUrl.split(",")[1];
+          const base64 = dataUrl.split(",").at(1);
           const binary = atob(base64);
           const bytes = new Uint8Array(binary.length);
           for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -234,9 +221,10 @@
       const lines = mapText.trim().split(/\r?\n/).filter(Boolean);
       const rows = [];
       for (let y = 0; y < Math.min(32, lines.length); y++) {
+        const rowStr = lines.at(y);
         const rowTiles = [];
-        for (let x = 0; x < Math.min(128, Math.floor(lines[y].length / 2)); x++) {
-          const hexByte = lines[y].substr(x * 2, 2);
+        for (let x = 0; x < Math.min(128, Math.floor(rowStr.length / 2)); x++) {
+          const hexByte = rowStr.substr(x * 2, 2);
           rowTiles.push(parseInt(hexByte, 16) || 0);
         }
         rows.push(rowTiles.join(","));
@@ -247,7 +235,7 @@
     function createBlankPng() {
       const c = document.createElement("canvas");
       c.width = 1; c.height = 1;
-      const base64 = c.toDataURL("image/png").split(",")[1];
+      const base64 = c.toDataURL("image/png").split(",").at(1);
       const bin = atob(base64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -261,3 +249,8 @@
         previewGrid.style.display = "flex";
 
         const scale = parseInt(document.getElementById("scaleSelect").value, 10);
+        const transIdx = parseInt(document.getElementById("transColor").value, 10);
+
+        log("1/4 Extracting __lua__, __gfx__, and __map__...");
+        const sections = parseP8(loadedText);
+
