@@ -4,16 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>.p8 to .sb3 Remaster Converter</title>
-  <script src="https://cloudflare.com"></script>
-  <script src="https://cloudflare.com"></script>
+  <script src="https://jsdelivr.net" defer></script>
+  <script src="https://jsdelivr.net" defer></script>
   <style>
     :root {
       --bg: #1d2b53;
       --card: #29366f;
       --accent: #ff004d;
-      --accent-hover: #ff77a8;
       --text: #fff1e8;
       --muted: #c2c3c7;
     }
@@ -30,9 +28,8 @@
     p { margin: 0 0 20px; color: var(--muted); font-size: 0.95rem; line-height: 1.4; }
     .dropzone {
       border: 2px dashed #5f574f; border-radius: 12px; padding: 28px 16px;
-      text-align: center; cursor: pointer; transition: 0.2s; background: rgba(0,0,0,0.15);
+      text-align: center; cursor: pointer; background: rgba(0,0,0,0.15);
     }
-    .dropzone:hover, .dropzone.dragover { border-color: var(--accent-hover); background: rgba(255,0,77,0.1); }
     input[type="file"] { display: none; }
     .options {
       display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0;
@@ -45,10 +42,9 @@
     button {
       width: 100%; background: var(--accent); color: white; border: none;
       border-radius: 10px; padding: 14px; font-size: 1rem; font-weight: bold;
-      cursor: pointer; transition: 0.15s;
+      cursor: pointer;
     }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
-    button:not(:disabled):hover { background: #e00043; }
     #log {
       margin-top: 16px; background: #000; color: #00e436; padding: 12px;
       border-radius: 8px; font-size: 0.8rem; max-height: 180px; overflow-y: auto;
@@ -91,7 +87,7 @@
 
     <button id="convertBtn" disabled>Convert &amp; Download .sb3</button>
     <div class="preview-grid" id="previewGrid" style="display:none;"></div>
-    <div id="log">Initializing...</div>
+    <div id="log">Script started...</div>
   </div>
 
   <script>
@@ -123,37 +119,27 @@
       try {
         log("Fetching ./testrom.p8...");
         const res = await fetch("./testrom.p8?v=" + Date.now());
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        if (!res.ok) throw new Error("HTTP " + res.status + " (Check that testrom.p8 is in the same folder)");
         const text = await res.text();
         if (!text.includes("__lua__") && !text.includes("__gfx__")) {
-          throw new Error("File returned is not a valid .p8 cartridge");
+          throw new Error("Returned file is not a .p8 cartridge (got HTML/404 page)");
         }
         loadCartText(text, "testrom.p8");
       } catch (err) {
         document.getElementById("fileLabel").textContent = "Tap to select or drop a .p8 file";
-        log("Auto-load skipped: " + err.message);
+        log("Auto-load failed: " + err.message);
       }
     }
 
     dropzone.addEventListener("click", () => fileInput.click());
-    dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
-    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
-    dropzone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      dropzone.classList.remove("dragover");
-      const file = e.dataTransfer.files.item(0);
-      if (file) handleFile(file);
-    });
     fileInput.addEventListener("change", (e) => {
       const file = e.target.files.item(0);
-      if (file) handleFile(file);
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => loadCartText(ev.target.result, file.name);
+        reader.readAsText(file);
+      }
     });
-
-    function handleFile(file) {
-      const reader = new FileReader();
-      reader.onload = (e) => loadCartText(e.target.result, file.name);
-      reader.readAsText(file);
-    }
 
     function parseP8(text) {
       const sections = { lua: "", gfx: "", gff: "", map: "", sfx: "", music: "" };
@@ -244,6 +230,9 @@
 
     convertBtn.addEventListener("click", async () => {
       try {
+        if (typeof JSZip === "undefined" || typeof SparkMD5 === "undefined") {
+          throw new Error("JSZip/SparkMD5 CDN blocked by school filter");
+        }
         convertBtn.disabled = true;
         previewGrid.innerHTML = "";
         previewGrid.style.display = "flex";
@@ -254,3 +243,15 @@
         log("1/4 Extracting __lua__, __gfx__, and __map__...");
         const sections = parseP8(loadedText);
 
+        log("2/4 Rendering PICO-8 sprites at " + scale + "x scale...");
+        const sprites = extractSprites(sections.gfx, scale, transIdx);
+        sprites.forEach(s => {
+          const img = document.createElement("img");
+          img.src = s.dataUrl;
+          img.title = "Sprite #" + s.idx;
+          previewGrid.appendChild(img);
+        });
+        log("Extracted " + sprites.length + " sprite costumes.");
+
+        const mapRows = parseMapRows(sections.map);
+        const luaLines = sections.lua.split(/\r?\n/);
