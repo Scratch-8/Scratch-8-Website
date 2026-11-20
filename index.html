@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>.p8 to .sb3 Remaster Converter</title>
-  <script src="https://jsdelivr.net" defer></script>
-  <script src="https://jsdelivr.net" defer></script>
   <style>
     :root {
       --bg: #1d2b53;
@@ -87,20 +85,26 @@
 
     <button id="convertBtn" disabled>Convert &amp; Download .sb3</button>
     <div class="preview-grid" id="previewGrid" style="display:none;"></div>
-    <div id="log">Script started...</div>
+    <div id="log">Waiting for JS...</div>
   </div>
 
   <script>
-    const PALETTE_HEX = "#000000,#1d2b53,#7e2553,#008751,#ab5236,#5f574f,#c2c3c7,#fff1e8,#ff004d,#ffa300,#ffec27,#00e436,#29adff,#83769c,#ff77a8,#ffccaa".split(",");
+    window.onerror = function(msg, url, line) {
+      var el = document.getElementById("log");
+      if (el) el.textContent += "\nJS ERROR (line " + line + "): " + msg;
+    };
+  </script>
 
-    let loadedText = "";
-    let fileName = "testrom";
+  <script>
+    var PALETTE_HEX = "#000000,#1d2b53,#7e2553,#008751,#ab5236,#5f574f,#c2c3c7,#fff1e8,#ff004d,#ffa300,#ffec27,#00e436,#29adff,#83769c,#ff77a8,#ffccaa".split(",");
+    var loadedText = "";
+    var fileName = "testrom";
 
-    const dropzone = document.getElementById("dropzone");
-    const fileInput = document.getElementById("fileInput");
-    const convertBtn = document.getElementById("convertBtn");
-    const logEl = document.getElementById("log");
-    const previewGrid = document.getElementById("previewGrid");
+    var dropzone = document.getElementById("dropzone");
+    var fileInput = document.getElementById("fileInput");
+    var convertBtn = document.getElementById("convertBtn");
+    var logEl = document.getElementById("log");
+    var previewGrid = document.getElementById("previewGrid");
 
     function log(msg) {
       logEl.textContent += "\n" + msg;
@@ -115,143 +119,91 @@
       log("Ready: " + name + " (" + loadedText.length + " bytes)");
     }
 
-    async function init() {
-      try {
-        log("Fetching ./testrom.p8...");
-        const res = await fetch("./testrom.p8?v=" + Date.now());
-        if (!res.ok) throw new Error("HTTP " + res.status + " (Check that testrom.p8 is in the same folder)");
-        const text = await res.text();
-        if (!text.includes("__lua__") && !text.includes("__gfx__")) {
-          throw new Error("Returned file is not a .p8 cartridge (got HTML/404 page)");
+    logEl.textContent = "JS running! Fetching ./testrom.p8...";
+
+    fetch("./testrom.p8?v=" + Date.now())
+      .then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      })
+      .then(function(text) {
+        if (text.indexOf("__lua__") === -1 && text.indexOf("__gfx__") === -1) {
+          throw new Error("testrom.p8 missing __lua__/__gfx__ headers");
         }
         loadCartText(text, "testrom.p8");
-      } catch (err) {
+      })
+      .catch(function(err) {
         document.getElementById("fileLabel").textContent = "Tap to select or drop a .p8 file";
-        log("Auto-load failed: " + err.message);
-      }
-    }
+        log("Auto-load skipped: " + err.message);
+      });
 
-    dropzone.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", (e) => {
-      const file = e.target.files.item(0);
+    dropzone.addEventListener("click", function() { fileInput.click(); });
+    fileInput.addEventListener("change", function(e) {
+      var file = e.target.files.item(0);
       if (file) {
-        const reader = new FileReader();
-        reader.onload = (ev) => loadCartText(ev.target.result, file.name);
+        var reader = new FileReader();
+        reader.onload = function(ev) { loadCartText(ev.target.result, file.name); };
         reader.readAsText(file);
       }
     });
 
-    function parseP8(text) {
-      const sections = { lua: "", gfx: "", gff: "", map: "", sfx: "", music: "" };
-      let current = null;
-      for (const rawLine of text.split(/\r?\n/)) {
-        const line = rawLine.trimEnd();
-        const match = line.match(/^__(lua|gfx|gff|map|sfx|music)__$/);
-        if (match) {
-          current = match.at(1);
-        } else if (current) {
-          sections[current] += rawLine + "\n";
-        }
+    // Pure-JS MD5 for Scratch asset IDs (zero CDN needed!)
+    function md5Bytes(bytes) {
+      function cmn(q, a, b, x, s, t) {
+        a = (((a + q) | 0) + ((x + t) | 0)) | 0;
+        return (((a << s) | (a >>> (32 - s))) + b) | 0;
       }
-      return sections;
-    }
+      function ff(a, b, c, d, x, s, t) { return cmn((b & c) | ((~b) & d), a, b, x, s, t); }
+      function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & (~d)), a, b, x, s, t); }
+      function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
+      function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | (~d)), a, b, x, s, t); }
 
-    function extractSprites(gfxText, scale, transIdx) {
-      const lines = gfxText.trim().split(/\r?\n/).filter(Boolean);
-      const grid = Array.from({ length: 128 }, () => new Uint8Array(128));
-      for (let y = 0; y < Math.min(128, lines.length); y++) {
-        const rowStr = lines.at(y);
-        for (let x = 0; x < Math.min(128, rowStr.length); x++) {
-          grid.at(y)[x] = parseInt(rowStr.charAt(x), 16) || 0;
-        }
-      }
+      var n = bytes.length;
+      var state = new Int32Array(4);
+      state.set([1732584193, -271733879, -1732584194, 271733878]);
 
-      const sprites = [];
-      const canvas = document.createElement("canvas");
-      canvas.width = 8 * scale;
-      canvas.height = 8 * scale;
-      const ctx = canvas.getContext("2d");
+      var totalLen = (((n + 8) >>> 6) + 1) * 64;
+      var buf = new Uint8Array(totalLen);
+      buf.set(bytes);
+      buf.set([0x80], n);
+      var view = new DataView(buf.buffer);
+      view.setUint32(totalLen - 8, (n * 8) >>> 0, true);
+      view.setUint32(totalLen - 4, Math.floor((n * 8) / 4294967296), true);
 
-      for (let idx = 0; idx < 128; idx++) {
-        const sx = (idx % 16) * 8;
-        const sy = Math.floor(idx / 16) * 8;
-        let hasPixels = false;
+      var k = new Int32Array(16);
+      for (var i = 0; i < totalLen; i += 64) {
+        for (var j = 0; j < 16; j++) k.set([view.getInt32(i + j * 4, true)], j);
+        var a = state.at(0), b = state.at(1), c = state.at(2), d = state.at(3);
+        a = ff(a, b, c, d, k.at(0), 7, -680876936); d = ff(d, a, b, c, k.at(1), 12, -389564586);
+        c = ff(c, d, a, b, k.at(2), 17, 606105819); b = ff(b, c, d, a, k.at(3), 22, -1044525330);
+        a = ff(a, b, c, d, k.at(4), 7, -176418897); d = ff(d, a, b, c, k.at(5), 12, 1200080426);
+        c = ff(c, d, a, b, k.at(6), 17, -1473231341); b = ff(b, c, d, a, k.at(7), 22, -45705983);
+        a = ff(a, b, c, d, k.at(8), 7, 1770035416); d = ff(d, a, b, c, k.at(9), 12, -1958414417);
+        c = ff(c, d, a, b, k.at(10), 17, -42063); b = ff(b, c, d, a, k.at(11), 22, -1990404162);
+        a = ff(a, b, c, d, k.at(12), 7, 1804603682); d = ff(d, a, b, c, k.at(13), 12, -40341101);
+        c = ff(c, d, a, b, k.at(14), 17, -1502002290); b = ff(b, c, d, a, k.at(15), 22, 1236535329);
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for (let py = 0; py < 8; py++) {
-          const rowArr = grid.at(sy + py);
-          for (let px = 0; px < 8; px++) {
-            const c = rowArr.at(sx + px);
-            if (c !== transIdx) {
-              hasPixels = true;
-              ctx.fillStyle = PALETTE_HEX.at(c) || "#000000";
-              ctx.fillRect(px * scale, py * scale, scale, scale);
-            }
-          }
-        }
+        a = gg(a, b, c, d, k.at(1), 5, -165796510); d = gg(d, a, b, c, k.at(6), 9, -1069501632);
+        c = gg(c, d, a, b, k.at(11), 14, 643717713); b = gg(b, c, d, a, k.at(0), 20, -373897302);
+        a = gg(a, b, c, d, k.at(5), 5, -701558691); d = gg(d, a, b, c, k.at(10), 9, 38016083);
+        c = gg(c, d, a, b, k.at(15), 14, -660478335); b = gg(b, c, d, a, k.at(4), 20, -405537848);
+        a = gg(a, b, c, d, k.at(9), 5, 568446438); d = gg(d, a, b, c, k.at(14), 9, -1019803690);
+        c = gg(c, d, a, b, k.at(3), 14, -187363961); b = gg(b, c, d, a, k.at(8), 20, 1163531501);
+        a = gg(a, b, c, d, k.at(13), 5, -1444681467); d = gg(d, a, b, c, k.at(2), 9, -51403784);
+        c = gg(c, d, a, b, k.at(7), 14, 1735328473); b = gg(b, c, d, a, k.at(12), 20, -1926607734);
 
-        if (hasPixels || idx === 0) {
-          const dataUrl = canvas.toDataURL("image/png");
-          const base64 = dataUrl.split(",").at(1);
-          const binary = atob(base64);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          const md5 = SparkMD5.ArrayBuffer.hash(bytes.buffer);
-          sprites.push({ idx, md5, bytes, dataUrl });
-        }
-      }
-      return sprites;
-    }
+        a = hh(a, b, c, d, k.at(5), 4, -378558); d = hh(d, a, b, c, k.at(8), 11, -2022574463);
+        c = hh(c, d, a, b, k.at(11), 16, 1839030562); b = hh(b, c, d, a, k.at(14), 23, -35309556);
+        a = hh(a, b, c, d, k.at(1), 4, -1530992060); d = hh(d, a, b, c, k.at(4), 11, 1272893353);
+        c = hh(c, d, a, b, k.at(7), 16, -155497632); b = hh(b, c, d, a, k.at(10), 23, -1094730640);
+        a = hh(a, b, c, d, k.at(13), 4, 681279174); d = hh(d, a, b, c, k.at(0), 11, -358537222);
+        c = hh(c, d, a, b, k.at(3), 16, -722521979); b = hh(b, c, d, a, k.at(6), 23, 76029189);
+        a = hh(a, b, c, d, k.at(9), 4, -640364487); d = hh(d, a, b, c, k.at(12), 11, -421815835);
+        c = hh(c, d, a, b, k.at(15), 16, 530742520); b = hh(b, c, d, a, k.at(2), 23, -995338651);
 
-    function parseMapRows(mapText) {
-      const lines = mapText.trim().split(/\r?\n/).filter(Boolean);
-      const rows = [];
-      for (let y = 0; y < Math.min(32, lines.length); y++) {
-        const rowStr = lines.at(y);
-        const rowTiles = [];
-        for (let x = 0; x < Math.min(128, Math.floor(rowStr.length / 2)); x++) {
-          const hexByte = rowStr.substr(x * 2, 2);
-          rowTiles.push(parseInt(hexByte, 16) || 0);
-        }
-        rows.push(rowTiles.join(","));
-      }
-      return rows;
-    }
-
-    function createBlankPng() {
-      const c = document.createElement("canvas");
-      c.width = 1; c.height = 1;
-      const base64 = c.toDataURL("image/png").split(",").at(1);
-      const bin = atob(base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return { md5: SparkMD5.ArrayBuffer.hash(bytes.buffer), bytes };
-    }
-
-    convertBtn.addEventListener("click", async () => {
-      try {
-        if (typeof JSZip === "undefined" || typeof SparkMD5 === "undefined") {
-          throw new Error("JSZip/SparkMD5 CDN blocked by school filter");
-        }
-        convertBtn.disabled = true;
-        previewGrid.innerHTML = "";
-        previewGrid.style.display = "flex";
-
-        const scale = parseInt(document.getElementById("scaleSelect").value, 10);
-        const transIdx = parseInt(document.getElementById("transColor").value, 10);
-
-        log("1/4 Extracting __lua__, __gfx__, and __map__...");
-        const sections = parseP8(loadedText);
-
-        log("2/4 Rendering PICO-8 sprites at " + scale + "x scale...");
-        const sprites = extractSprites(sections.gfx, scale, transIdx);
-        sprites.forEach(s => {
-          const img = document.createElement("img");
-          img.src = s.dataUrl;
-          img.title = "Sprite #" + s.idx;
-          previewGrid.appendChild(img);
-        });
-        log("Extracted " + sprites.length + " sprite costumes.");
-
-        const mapRows = parseMapRows(sections.map);
-        const luaLines = sections.lua.split(/\r?\n/);
+        a = ii(a, b, c, d, k.at(0), 6, -198630844); d = ii(d, a, b, c, k.at(7), 10, 1126891415);
+        c = ii(c, d, a, b, k.at(14), 15, -1416354905); b = ii(b, c, d, a, k.at(5), 21, -57434055);
+        a = ii(a, b, c, d, k.at(12), 6, 1700485571); d = ii(d, a, b, c, k.at(3), 10, -1894986606);
+        c = ii(c, d, a, b, k.at(10), 15, -1051523); b = ii(b, c, d, a, k.at(1), 21, -2054922799);
+        a = ii(a, b, c, d, k.at(8), 6, 1873313359); d = ii(d, a, b, c, k.at(15), 10, -30611744);
+        c = ii(c, d, a, b, k.at(6), 15, -1560198380); b = ii(b, c, d, a, k.at(13), 21, 1309151649);
